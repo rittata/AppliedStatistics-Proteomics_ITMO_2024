@@ -1,0 +1,112 @@
+---
+title: "HW2"
+author: "Margarita Onvumere"
+date: "2024-06-26"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r, include=FALSE}
+
+if (!require("BiocManager", quietly = TRUE))
+  install.packages("BiocManager")
+BiocManager::install("golubEsets")
+
+require(golubEsets)
+library(dplyr)
+library(vegan)
+library(ggplot2)
+library(gridExtra)
+library(ape)
+library(dendextend)
+library(pvclust)
+library(tibble)
+```
+
+Let's upload the data:
+
+```{r}
+data(Golub_Merge)
+golub <- data.frame(Golub_Merge)[1:7129]
+```
+
+There are 47 patients with acute lymphoblastic leukemia (ALL) and 25 patients with acute myeloid leukemia (AML). The samples were assayed using Affymetrix Hgu6800 chips and data on the expression of 7129 genes (Affymetrix probes) are available.
+
+Let's check the distribution:
+
+```{r, echo=FALSE}
+raw_mean <- colMeans(golub) %>% as_tibble() %>% arrange(value)%>% ggplot(aes(x=value))+geom_density()+xlab(label = "Mean_of_raw_data")
+raw_mean
+```
+
+The distribution is good. According to golubEsets documentation, the dataset is already transformed, so we don't have to normalise the data.
+
+Let's compare different distance matrix and clustering methods:
+
+```{r, echo=FALSE}
+ccc_table <- data.frame()
+dist_methods <- c("euclidean", "bray", "canberra", "manhattan", "gower")
+clust_methods <- c("single", "complete", "average", "ward.D2")
+clust_methods_names <- c("single linkage method", "complete linkage method", "UPGMA", "Ward")
+
+for (i in 1:length(dist_methods)) {
+  for (j in 1:length(clust_methods)){
+    dist <- vegdist(golub, method = dist_methods[i])
+    # hist(dist, main = paste("Density plot for ", dist_methods[i], " distance", sep = ''))
+    clust <- hclust(dist, method = clust_methods[j])
+    ph <- as.phylo(clust)
+    # plot(ph, type = "phylogram", main = paste("Phylogram for ", clust_methods_names[j], ", ", dist_methods[i], " distance", sep = ''))
+    # axisPhylo()
+    ce_matrix <- cophenetic(ph)
+    ccc <- cor(dist, as.dist(ce_matrix))
+    ccc_table <- rbind(ccc_table, data.frame(method = paste(clust_methods[j], " clustering, ", dist_methods[i], " distance", sep = ''), ccc_value = ccc))
+    # print(paste("Cophenetic correlation coefficient for", clust_methods_names[j], ",", dist_methods[i], "distance:", ccc))
+  }
+}
+
+ccc_table[order(ccc_table$ccc_value), ]
+```
+
+The highest cophenetic correlation coefficient was achieved by using Gower distance and average clustering (UPGMA) methods.
+
+Let's now compare the clustering results with real data and for the best method:
+
+```{r, echo=FALSE}
+dist_best <- vegdist(golub, method = 'gower')
+hist(dist_best, main = "Density plot for Gower distance")
+clust_best <- hclust(dist_best, method = 'average')
+ph_best <- as.phylo(clust_best)
+real_data <- factor(Golub_Merge$ALL.AML)
+colors <- ifelse(real_data == 'AML', 'blue', 'green')
+options(repr.plot.width = 50, repr.plot.height =50, repr.plot.res = 400) 
+plot(ph_best, main = "Phylogram for UPGMA, Gower distance", tip.color = colors, cex=0.5)
+```
+
+Additionally, since Gower distance is not available in pvclust, we will will make a comparison for model with Euclidean distance.
+
+```{r, echo=FALSE}
+dist_best_1 <- vegdist(golub, method = 'euclidean')
+hist(dist_best_1, main = "Density plot for Euclidean distance")
+clust_best_1 <- hclust(dist_best_1, method = 'average')
+ph_best_1 <- as.phylo(clust_best_1)
+real_data <- factor(Golub_Merge$ALL.AML)
+colors <- ifelse(real_data == 'AML', 'blue', 'green')
+options(repr.plot.width = 50, repr.plot.height =50, repr.plot.res = 400) 
+plot(ph_best_1, main = "Phylogram for UPGMA, Euclidean distance", tip.color = colors, cex=0.5)
+```
+
+Bootstrap:
+
+```{r}
+# I ran this code in different environment (due to RAM limitations)
+# cl_boot <- pvclust(t(golub), method.hclust = "average", nboot = 100, method.dist = "euclidean", parallel = TRUE, iseed = 42)
+# options(repr.plot.width = 20, repr.plot.height =10, repr.plot.res = 200) 
+# plot(cl_boot)
+```
+
+![](hw2_dok.png)
+
+**Conclusions**
+
+The phylogram for the best method shows a good separation of clusters given the relatively small number of patients used in the study. Tentatively, the "boundary" of the clusters is between samples 57 and 18 for Gower distance and 17 and 61 for Euclidean distance method. Bootstrap probabilites are low (\<90%) for the entire plot, indicating low statistical significance of the results. We cannot be certain that the relatively simple methods can be used in clinical practice, especially if the dataset for clustering is not big. However, clustering methods are useful for research purposes, for example, to identify the new cancer subtypes.
