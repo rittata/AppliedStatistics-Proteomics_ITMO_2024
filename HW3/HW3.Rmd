@@ -1,0 +1,118 @@
+---
+title: "HW3"
+author: "Margarita Onvumere"
+date: "2024-06-27"
+output: html_document
+---
+
+```{r, include=FALSE}
+# if (!require("BiocManager", quietly = TRUE))
+#   install.packages("BiocManager")
+# BiocManager::install("impute")
+
+library(readxl)
+library(vegan)
+library(ggplot2)
+library(plotly)
+library(impute)
+library(factoextra)
+theme_set(theme_bw())
+```
+
+Let's start by uploading and preparing the data.
+
+We need to select features needed for the task and correctly identify categorical and numerical attributes:
+
+```{r}
+data <- read_excel("Sleepy lizard.xlsx")
+sum(is.na(data))
+data <- select(data, Treatment, Habitat, Connectivity, # categorical
+               Tot_WBC, Het_ABS, Lym_ABS, `H:L Ratio`, Mon_ABS,
+               OthG_ABS, LBSI) #numerical
+data$Treatment<-as.factor(data$Treatment)
+data$Habitat<-as.factor(data$Habitat)
+data$Connectivity<-as.factor(data$Connectivity)
+sum(is.na(data))
+
+# After data selection there is no NA's, the code below is not needed
+# data<-na.omit(data)
+```
+
+Let's check the distribution of numerical features:
+
+```{r, echo=FALSE}
+boxplot(data[-c(1:3)])
+```
+
+We need to normalise our data:
+
+```{r}
+data_log <- log(data[-c(1:3)] + 1)
+center <- function(x){
+  x - mean(x, na.rm = TRUE)
+}
+data_log_cent <- t(apply(data_log, 1, center))
+data_log_cent <- apply(t(data_log_cent), 1, center)
+boxplot(data_log_cent)
+```
+
+The data are ready for analysis. Let's construct a PCA ordination:
+
+```{r}
+res.pca <- prcomp(data_log_cent)
+groups <- data$Habitat
+fviz_pca_ind(res.pca,axes =   c(1,2),
+             col.ind = groups,
+             geom="point",
+             addEllipses = TRUE,
+             ellipse.type = "confidence",
+             legend.title = "Habitat",
+             repel = TRUE,
+             )
+summary(res.pca)
+```
+
+<br><br>
+
+Now let's run perMANOVA to answer questions in a task. First, we need to check conditions for applicability:
+
+```{r}
+dist <- vegdist(data_log_cent, method  = "euclidean")
+
+PCO_Treatment <- betadisper(dist, data$Treatment)
+plot(PCO_Treatment)
+anova(PCO_Treatment)
+
+PCO_Habitat <- betadisper(dist, data$Habitat)
+plot(PCO_Habitat)
+anova(PCO_Habitat)
+
+PCO_Connectivity <- betadisper(dist, data$Connectivity)
+plot(PCO_Connectivity)
+anova(PCO_Connectivity)
+```
+
+<br><br> There is no significant difference in the mean distances between the groups. Now we can run perMANOVA:
+
+```{r}
+data_log_cent_treatment_filt <- subset(data_log_cent, data$Treatment == 2)
+habitat_treatment_filt <- subset(data, Treatment == 2)$Habitat
+connect_treatment_filt <- subset(data, Treatment == 2)$Connectivity
+
+# a: Whether the blood composition of lizards from a highly modified landscape is affected by habitat type and degree of connectivity
+adonis2(data_log_cent ~ data$Treatment, method = "euclidean")
+
+# b: Check whether blood composition of lizards in different habitats differs between lizards from the highly modified landscape
+adonis2(data_log_cent_treatment_filt ~ habitat_treatment_filt, method = "euclidean")
+
+# c: Test whether the degree of connectivity affects the blood composition of lizards from the highly modified landscape
+adonis2(data_log_cent_treatment_filt ~ connect_treatment_filt, method = "euclidean")
+
+# d: Whether the blood composition of lizards from a highly modified landscape is affected by habitat type and degree of connectivity (10 points)
+adonis2(data_log_cent_treatment_filt ~ habitat_treatment_filt * connect_treatment_filt, method = "euclidean")
+
+```
+
+<br><br>
+
+Lizards from unmodified and highly modified landscapes have significant differences in blood composition. At the same time, the blood composition of lizards from highly modified landscapes is is not affected by habitat type and/or connectivity.
